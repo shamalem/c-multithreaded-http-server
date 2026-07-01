@@ -79,6 +79,21 @@ int main(void) {
         }
         log_msg(LOG_INFO, "%s %s %s", method, path, version);
 
+        if (strcmp(path, "/slow") == 0) {
+            log_msg(LOG_INFO, "Handling /slow: sleeping 5s (fd=%d)", conn_fd);
+            sleep(5);
+            const char *slow_ok =
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: 14\r\n"
+                "\r\n"
+                "Slow response!";
+            write(conn_fd, slow_ok, strlen(slow_ok));
+            log_msg(LOG_INFO, "Finished /slow (fd=%d)", conn_fd);
+            close(conn_fd);
+            continue;
+        }
+
         if (strstr(path, "..") != NULL) {
             log_msg(LOG_WARN, "Rejected path traversal attempt: %s", path);
             const char *not_found =
