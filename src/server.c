@@ -43,10 +43,11 @@ int main(void) {
         perror("accept");
         continue;
     }
-    }
+    
     printf("Client connected!\n");
 
     close(conn_fd);
+    }
     close(listen_fd);
     return 0;
 }
