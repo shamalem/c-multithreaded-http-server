@@ -11,4 +11,10 @@ thread_pool_t *thread_pool_create(int num_threads);
 // the pool.
 void thread_pool_submit(thread_pool_t *pool, int conn_fd);
 
+// Wakes all idle workers, joins every worker thread (waiting for any
+// in-flight handle_client() call to finish), closes any fds still
+// sitting in the queue, and frees the pool. Not safe to call
+// concurrently with thread_pool_submit().
+void thread_pool_destroy(thread_pool_t *pool);
+
 #endif

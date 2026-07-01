@@ -22,6 +22,7 @@ struct thread_pool {
 
     pthread_mutex_t lock;
     pthread_cond_t not_empty;
+    int shutdown;
 };
 
 static void *worker_main(void *arg) {
@@ -29,8 +30,13 @@ static void *worker_main(void *arg) {
 
     while (1) {
         pthread_mutex_lock(&pool->lock);
-        while (pool->queue_head == NULL) {
+        while (pool->queue_head == NULL && !pool->shutdown) {
             pthread_cond_wait(&pool->not_empty, &pool->lock);
+        }
+
+        if (pool->queue_head == NULL && pool->shutdown) {
+            pthread_mutex_unlock(&pool->lock);
+            break;
         }
 
         task_t *task = pool->queue_head;
@@ -56,6 +62,7 @@ thread_pool_t *thread_pool_create(int num_threads) {
     pool->num_threads = num_threads;
     pool->queue_head = NULL;
     pool->queue_tail = NULL;
+    pool->shutdown = 0;
     pthread_mutex_init(&pool->lock, NULL);
     pthread_cond_init(&pool->not_empty, NULL);
 
@@ -94,4 +101,29 @@ void thread_pool_submit(thread_pool_t *pool, int conn_fd) {
     pool->queue_tail = task;
     pthread_cond_signal(&pool->not_empty);
     pthread_mutex_unlock(&pool->lock);
+}
+
+void thread_pool_destroy(thread_pool_t *pool) {
+    pthread_mutex_lock(&pool->lock);
+    pool->shutdown = 1;
+    pthread_cond_broadcast(&pool->not_empty);
+    pthread_mutex_unlock(&pool->lock);
+
+    for (int i = 0; i < pool->num_threads; i++) {
+        pthread_join(pool->threads[i], NULL);
+    }
+
+    task_t *task = pool->queue_head;
+    while (task != NULL) {
+        task_t *next = task->next;
+        close(task->conn_fd);
+        free(task);
+        task = next;
+    }
+
+    pthread_mutex_destroy(&pool->lock);
+    pthread_cond_destroy(&pool->not_empty);
+    free(pool->threads);
+    free(pool);
+    log_msg(LOG_INFO, "Thread pool shut down cleanly");
 }
