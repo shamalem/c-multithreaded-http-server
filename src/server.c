@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -45,6 +46,24 @@ int main(void) {
     }
     
     printf("Client connected!\n");
+
+    char buffer[4096];
+    ssize_t bytes_read = read(conn_fd, buffer, sizeof(buffer) - 1);
+    if (bytes_read == -1) {
+        perror("read");
+        close(conn_fd);
+        continue;
+    }
+    buffer[bytes_read] = '\0';
+    printf("--- Request ---\n%s\n----------------\n", buffer);
+
+    const char *response =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: 13\r\n"
+        "\r\n"
+        "Hello, world!";
+    write(conn_fd, response, strlen(response));
 
     close(conn_fd);
     }
