@@ -57,12 +57,33 @@ int main(void) {
         buffer[bytes_read] = '\0';
         printf("--- Request ---\n%s\n----------------\n", buffer);
 
-        const char *response =
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: 13\r\n"
-            "\r\n"
-            "Hello, world!";
+        char method[16];
+        char path[256];
+        char version[16];
+        int matched = sscanf(buffer, "%15s %255s %15s", method, path, version);
+        if (matched != 3) {
+            printf("Malformed request line\n");
+            close(conn_fd);
+            continue;
+        }
+        printf("method=%s path=%s version=%s\n", method, path, version);
+
+        const char *response;
+        if (strcmp(path, "/") == 0) {
+            response =
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: 13\r\n"
+                "\r\n"
+                "Hello, world!";
+        } else {
+            response =
+                "HTTP/1.1 404 Not Found\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: 9\r\n"
+                "\r\n"
+                "Not Found";
+        }
         write(conn_fd, response, strlen(response));
 
         close(conn_fd);
