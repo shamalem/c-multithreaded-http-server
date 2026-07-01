@@ -1,8 +1,10 @@
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <netinet/in.h>
 
 int main(void) {
@@ -68,23 +70,53 @@ int main(void) {
         }
         printf("method=%s path=%s version=%s\n", method, path, version);
 
-        const char *response;
-        if (strcmp(path, "/") == 0) {
-            response =
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Type: text/plain\r\n"
-                "Content-Length: 13\r\n"
-                "\r\n"
-                "Hello, world!";
-        } else {
-            response =
-                "HTTP/1.1 404 Not Found\r\n"
-                "Content-Type: text/plain\r\n"
-                "Content-Length: 9\r\n"
-                "\r\n"
-                "Not Found";
+        const char *not_found =
+            "HTTP/1.1 404 Not Found\r\n"
+            "Content-Type: text/plain\r\n"
+            "Content-Length: 9\r\n"
+            "\r\n"
+            "Not Found";
+
+        if (strstr(path, "..") != NULL) {
+            printf("Rejected path traversal attempt: %s\n", path);
+            write(conn_fd, not_found, strlen(not_found));
+            close(conn_fd);
+            continue;
         }
-        write(conn_fd, response, strlen(response));
+
+        char full_path[512];
+        if (strcmp(path, "/") == 0) {
+            snprintf(full_path, sizeof(full_path), "public/index.html");
+        } else {
+            snprintf(full_path, sizeof(full_path), "public%s", path);
+        }
+
+        int file_fd = open(full_path, O_RDONLY);
+        if (file_fd == -1) {
+            perror("open");
+            write(conn_fd, not_found, strlen(not_found));
+            close(conn_fd);
+            continue;
+        }
+
+        struct stat st;
+        fstat(file_fd, &st);
+
+        char header[256];
+        int header_len = snprintf(header, sizeof(header),
+            "HTTP/1.1 200 OK\r\n"
+            "Content-Type: text/html\r\n"
+            "Content-Length: %lld\r\n"
+            "\r\n",
+            (long long)st.st_size);
+        write(conn_fd, header, header_len);
+
+        char file_buf[4096];
+        ssize_t n;
+        while ((n = read(file_fd, file_buf, sizeof(file_buf))) > 0) {
+            write(conn_fd, file_buf, n);
+        }
+        close(file_fd);
 
         close(conn_fd);
     }
