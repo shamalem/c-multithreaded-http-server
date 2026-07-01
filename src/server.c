@@ -11,20 +11,24 @@ int main(void) {
         exit(EXIT_FAILURE);
     }
     printf("Socket created: fd=%d\n", listen_fd);
+
     int opt = 1;
     if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
-    perror("setsockopt");
-    exit(EXIT_FAILURE);
-}
-    struct sockaddr_in addr = {0};
-addr.sin_family = AF_INET;
-addr.sin_addr.s_addr = INADDR_ANY;
-addr.sin_port = htons(8080);
+        perror("setsockopt");
+        exit(EXIT_FAILURE);
+    }
 
-if (bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-    perror("bind");
-    exit(EXIT_FAILURE);
-}
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(8080);
+
+    if (bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
+        perror("bind");
+        exit(EXIT_FAILURE);
+    }
+    printf("Bound to port 8080\n");
+
     close(listen_fd);
     return 0;
 }
