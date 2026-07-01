@@ -1,5 +1,4 @@
 #include <errno.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,16 +7,9 @@
 #include <netinet/in.h>
 
 #include "log.h"
-#include "request_handler.h"
+#include "thread_pool.h"
 
-// Thread entry point: takes ownership of the heap-allocated fd, frees
-// it, and hands the connection off to handle_client().
-static void *client_thread(void *arg) {
-    int conn_fd = *(int *)arg;
-    free(arg);
-    handle_client(conn_fd);
-    return NULL;
-}
+#define NUM_WORKER_THREADS 4
 
 int main(void) {
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -50,6 +42,8 @@ int main(void) {
     }
     log_msg(LOG_INFO, "Listening on port 8080...");
 
+    thread_pool_t *pool = thread_pool_create(NUM_WORKER_THREADS);
+
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
     while(1){
@@ -59,23 +53,7 @@ int main(void) {
             continue;
         }
 
-        int *fd_ptr = malloc(sizeof(int));
-        if (fd_ptr == NULL) {
-            log_msg(LOG_ERROR, "malloc failed, dropping connection fd=%d", conn_fd);
-            close(conn_fd);
-            continue;
-        }
-        *fd_ptr = conn_fd;
-
-        pthread_t tid;
-        int rc = pthread_create(&tid, NULL, client_thread, fd_ptr);
-        if (rc != 0) {
-            log_msg(LOG_ERROR, "pthread_create: %s", strerror(rc));
-            free(fd_ptr);
-            close(conn_fd);
-            continue;
-        }
-        pthread_detach(tid);
+        thread_pool_submit(pool, conn_fd);
     }
     close(listen_fd);
     return 0;
