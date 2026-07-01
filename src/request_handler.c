@@ -1,4 +1,5 @@
 #include "request_handler.h"
+#include "http.h"
 #include "log.h"
 
 #include <errno.h>
@@ -20,11 +21,8 @@ void handle_client(int conn_fd) {
     }
     buffer[bytes_read] = '\0';
 
-    char method[16];
-    char path[256];
-    char version[16];
-    int matched = sscanf(buffer, "%15s %255s %15s", method, path, version);
-    if (matched != 3) {
+    http_request_t req;
+    if (http_parse_request_line(buffer, &req) != 0) {
         log_msg(LOG_WARN, "Malformed request line");
         const char *bad_request =
             "HTTP/1.1 400 Bad Request\r\n"
@@ -36,9 +34,9 @@ void handle_client(int conn_fd) {
         close(conn_fd);
         return;
     }
-    log_msg(LOG_INFO, "%s %s %s", method, path, version);
+    log_msg(LOG_INFO, "%s %s %s", req.method, req.path, req.version);
 
-    if (strcmp(path, "/slow") == 0) {
+    if (strcmp(req.path, "/slow") == 0) {
         log_msg(LOG_INFO, "Handling /slow: sleeping 5s (fd=%d)", conn_fd);
         sleep(5);
         const char *slow_ok =
@@ -53,8 +51,8 @@ void handle_client(int conn_fd) {
         return;
     }
 
-    if (strstr(path, "..") != NULL) {
-        log_msg(LOG_WARN, "Rejected path traversal attempt: %s", path);
+    if (!http_path_is_safe(req.path)) {
+        log_msg(LOG_WARN, "Rejected path traversal attempt: %s", req.path);
         const char *not_found =
             "HTTP/1.1 404 Not Found\r\n"
             "Content-Type: text/plain\r\n"
@@ -67,10 +65,10 @@ void handle_client(int conn_fd) {
     }
 
     char full_path[512];
-    if (strcmp(path, "/") == 0) {
+    if (strcmp(req.path, "/") == 0) {
         snprintf(full_path, sizeof(full_path), "public/index.html");
     } else {
-        snprintf(full_path, sizeof(full_path), "public%s", path);
+        snprintf(full_path, sizeof(full_path), "public%s", req.path);
     }
 
     int file_fd = open(full_path, O_RDONLY);
