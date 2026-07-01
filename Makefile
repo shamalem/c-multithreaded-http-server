@@ -1,7 +1,7 @@
 CC      := gcc
 CSTD    := -std=c17
 WARN    := -Wall -Wextra -Wpedantic -Werror
-CFLAGS  := $(CSTD) $(WARN) -g -Iinclude
+CFLAGS  := $(CSTD) $(WARN) -D_POSIX_C_SOURCE=200809L -g -Iinclude
 LDFLAGS := -pthread
 
 SRC_DIR   := src

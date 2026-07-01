@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,17 +8,19 @@
 #include <sys/stat.h>
 #include <netinet/in.h>
 
+#include "log.h"
+
 int main(void) {
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd == -1) {
-        perror("socket");
+        log_msg(LOG_ERROR, "socket: %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
-    printf("Socket created: fd=%d\n", listen_fd);
+    log_msg(LOG_INFO, "Socket created: fd=%d", listen_fd);
 
     int opt = 1;
     if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
-        perror("setsockopt");
+        log_msg(LOG_ERROR, "setsockopt: %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
 
@@ -27,58 +30,63 @@ int main(void) {
     addr.sin_port = htons(8080);
 
     if (bind(listen_fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-        perror("bind");
+        log_msg(LOG_ERROR, "bind: %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
-    printf("Bound to port 8080\n");
+    log_msg(LOG_INFO, "Bound to port 8080");
 
     if (listen(listen_fd, 10) == -1) {
-        perror("listen");
+        log_msg(LOG_ERROR, "listen: %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
-    printf("Listening on port 8080...\n");
+    log_msg(LOG_INFO, "Listening on port 8080...");
 
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
     while(1){
         int conn_fd = accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
         if (conn_fd == -1) {
-            perror("accept");
+            log_msg(LOG_WARN, "accept: %s", strerror(errno));
             continue;
         }
 
-        printf("Client connected!\n");
+        log_msg(LOG_INFO, "Client connected: fd=%d", conn_fd);
 
         char buffer[4096];
         ssize_t bytes_read = read(conn_fd, buffer, sizeof(buffer) - 1);
         if (bytes_read == -1) {
-            perror("read");
+            log_msg(LOG_WARN, "read: %s", strerror(errno));
             close(conn_fd);
             continue;
         }
         buffer[bytes_read] = '\0';
-        printf("--- Request ---\n%s\n----------------\n", buffer);
 
         char method[16];
         char path[256];
         char version[16];
         int matched = sscanf(buffer, "%15s %255s %15s", method, path, version);
         if (matched != 3) {
-            printf("Malformed request line\n");
+            log_msg(LOG_WARN, "Malformed request line");
+            const char *bad_request =
+                "HTTP/1.1 400 Bad Request\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: 11\r\n"
+                "\r\n"
+                "Bad Request";
+            write(conn_fd, bad_request, strlen(bad_request));
             close(conn_fd);
             continue;
         }
-        printf("method=%s path=%s version=%s\n", method, path, version);
-
-        const char *not_found =
-            "HTTP/1.1 404 Not Found\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: 9\r\n"
-            "\r\n"
-            "Not Found";
+        log_msg(LOG_INFO, "%s %s %s", method, path, version);
 
         if (strstr(path, "..") != NULL) {
-            printf("Rejected path traversal attempt: %s\n", path);
+            log_msg(LOG_WARN, "Rejected path traversal attempt: %s", path);
+            const char *not_found =
+                "HTTP/1.1 404 Not Found\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: 9\r\n"
+                "\r\n"
+                "Not Found";
             write(conn_fd, not_found, strlen(not_found));
             close(conn_fd);
             continue;
@@ -93,14 +101,43 @@ int main(void) {
 
         int file_fd = open(full_path, O_RDONLY);
         if (file_fd == -1) {
-            perror("open");
-            write(conn_fd, not_found, strlen(not_found));
+            if (errno == EACCES) {
+                log_msg(LOG_WARN, "Forbidden: %s", full_path);
+                const char *forbidden =
+                    "HTTP/1.1 403 Forbidden\r\n"
+                    "Content-Type: text/plain\r\n"
+                    "Content-Length: 9\r\n"
+                    "\r\n"
+                    "Forbidden";
+                write(conn_fd, forbidden, strlen(forbidden));
+            } else {
+                log_msg(LOG_WARN, "Not found: %s (%s)", full_path, strerror(errno));
+                const char *not_found =
+                    "HTTP/1.1 404 Not Found\r\n"
+                    "Content-Type: text/plain\r\n"
+                    "Content-Length: 9\r\n"
+                    "\r\n"
+                    "Not Found";
+                write(conn_fd, not_found, strlen(not_found));
+            }
             close(conn_fd);
             continue;
         }
 
         struct stat st;
-        fstat(file_fd, &st);
+        if (fstat(file_fd, &st) == -1) {
+            log_msg(LOG_ERROR, "fstat: %s", strerror(errno));
+            const char *server_error =
+                "HTTP/1.1 500 Internal Server Error\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: 21\r\n"
+                "\r\n"
+                "Internal Server Error";
+            write(conn_fd, server_error, strlen(server_error));
+            close(file_fd);
+            close(conn_fd);
+            continue;
+        }
 
         char header[256];
         int header_len = snprintf(header, sizeof(header),
