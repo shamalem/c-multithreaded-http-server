@@ -37,11 +37,11 @@ int main(void) {
 
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
-
+    while(1){
     int conn_fd = accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
     if (conn_fd == -1) {
         perror("accept");
-        exit(EXIT_FAILURE);
+        continue;
     }
     printf("Client connected!\n");
 
